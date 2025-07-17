@@ -11,7 +11,7 @@ interface PostFormProps {
 export default function PostForm({ onPostCreated }: PostFormProps) {
   const { user } = useAuthContext();
   const { createPost, isSubmitting, error } = usePosts();
-  
+
   const [text, setText] = useState('');
   const [categoryId, setCategoryId] = useState('感想');
   const [localError, setLocalError] = useState('');
@@ -27,7 +27,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
+
     if (!user || !user.nickname) {
       setLocalError('ニックネームを設定してから投稿してください');
       return;
@@ -36,7 +36,13 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
     try {
       setLocalError('');
       setSuccessMessage('');
-      
+
+      // ネットワーク接続チェック
+      if (!navigator.onLine) {
+        setLocalError('インターネット接続がありません。ネットワーク接続を確認してください。');
+        return;
+      }
+
       await createPost({
         text,
         categoryId,
@@ -45,7 +51,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
       // 投稿成功時の処理
       setText('');
       setSuccessMessage('投稿が作成されました！');
-      
+
       // 成功メッセージを3秒後に消す
       setTimeout(() => {
         setSuccessMessage('');
@@ -55,11 +61,43 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
       if (onPostCreated) {
         onPostCreated();
       }
-      
+
       console.log('投稿作成完了 - PostListが自動更新されます');
-    } catch (err) {
-      // エラーはusePosts内で処理される
+    } catch (err: unknown) {
+      // エラーメッセージをユーザーフレンドリーに表示
       console.error('投稿エラー:', err);
+
+      // エラーオブジェクトの型を確認
+      if (typeof err === 'object' && err !== null) {
+        // Firebaseエラーの場合
+        const firebaseErr = err as { code?: string; message?: string };
+
+        if (firebaseErr.code === 'permission-denied') {
+          setLocalError('投稿する権限がありません。ログインし直してください。');
+        } else if (firebaseErr.code === 'unavailable') {
+          setLocalError('サーバーに接続できません。インターネット接続を確認してください。');
+        } else if (firebaseErr.message) {
+          setLocalError(firebaseErr.message);
+        } else {
+          setLocalError('投稿の作成に失敗しました。もう一度お試しください。');
+        }
+      } else {
+        setLocalError('投稿の作成に失敗しました。もう一度お試しください。');
+      }
+
+      // ネットワークエラー以外の場合のみ、自動的にエラーメッセージを消す（10秒後）
+      if (typeof err === 'object' && err !== null) {
+        const errorObj = err as { message?: string };
+        if (typeof errorObj.message === 'string' && !errorObj.message.includes('インターネット接続がありません')) {
+          setTimeout(() => {
+            setLocalError('');
+          }, 10000);
+        }
+      } else {
+        setTimeout(() => {
+          setLocalError('');
+        }, 10000);
+      }
     }
   };
 
@@ -78,7 +116,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
   return (
     <div className="bg-white p-6 rounded-lg shadow-md">
       <h2 className="text-xl font-semibold mb-4 text-gray-900">掲示板に投稿する</h2>
-      
+
       <div className="mb-4 text-sm text-gray-600">
         投稿者: <span className="font-semibold">{user.nickname}</span>
       </div>
@@ -117,7 +155,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
           <select
             id="category"
             value={categoryId}
-            onChange={(e) => setCategoryId(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCategoryId(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
             disabled={isSubmitting}
           >
@@ -137,7 +175,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
             id="text"
             rows={4}
             value={text}
-            onChange={(e) => setText(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
             placeholder="感想や応援メッセージをどうぞ！"
             maxLength={500}

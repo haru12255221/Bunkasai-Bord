@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuthContext } from '../hooks/AuthContext';
 import { checkNicknameAvailability, setNicknameWithValue } from '../hooks/useAuth';
 
@@ -44,7 +44,7 @@ export default function NicknameForm({ onComplete }: NicknameFormProps) {
       await setNickname(originalNickname);
       setIsCompleted(true);
       if (onComplete) onComplete();
-    } catch (err) {
+    } catch {
       setLocalError('ニックネームの設定に失敗しました');
     } finally {
       setIsSubmitting(false);
@@ -60,7 +60,7 @@ export default function NicknameForm({ onComplete }: NicknameFormProps) {
       setIsCompleted(true);
       setShowConfirmModal(false);
       if (onComplete) onComplete();
-    } catch (err) {
+    } catch {
       setLocalError('ニックネームの設定に失敗しました');
     } finally {
       setIsSubmitting(false);
@@ -109,7 +109,7 @@ export default function NicknameForm({ onComplete }: NicknameFormProps) {
               type="text"
               id="nickname"
               value={nickname}
-              onChange={(e) => setNicknameInput(e.target.value)}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNicknameInput(e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
               placeholder="例: 田中太郎"
               maxLength={20}

@@ -37,6 +37,7 @@ export function usePosts() {
   // 投稿を作成する関数
   const createPost = async (postData: NewPost): Promise<void> => {
     if (!user || !user.nickname) {
+      setError('ユーザーが認証されていないか、ニックネームが設定されていません');
       throw new Error('ユーザーが認証されていないか、ニックネームが設定されていません');
     }
 
@@ -46,27 +47,51 @@ export function usePosts() {
 
       // 入力バリデーション
       if (!postData.text.trim()) {
+        setError('投稿内容を入力してください');
         throw new Error('投稿内容を入力してください');
       }
 
       if (postData.text.length > 500) {
+        setError('投稿は500文字以内で入力してください');
         throw new Error('投稿は500文字以内で入力してください');
       }
 
       if (!postData.categoryId) {
+        setError('カテゴリを選択してください');
         throw new Error('カテゴリを選択してください');
       }
 
-      // Firestoreのpostsコレクションに新しい投稿を追加
-      const docRef = await addDoc(collection(db, 'posts'), {
-        text: postData.text.trim(),
-        nickname: user.nickname,
-        categoryId: postData.categoryId,
-        createdAt: serverTimestamp(),
-        userId: user.uid,
-      });
+      // ネットワーク接続チェック
+      if (!navigator.onLine) {
+        setError('インターネット接続がありません。ネットワーク接続を確認してください。');
+        throw new Error('インターネット接続がありません');
+      }
 
-      console.log('投稿が作成されました。ID:', docRef.id);
+      try {
+        // Firestoreのpostsコレクションに新しい投稿を追加
+        const docRef = await addDoc(collection(db, 'posts'), {
+          text: postData.text.trim(),
+          nickname: user.nickname,
+          categoryId: postData.categoryId,
+          createdAt: serverTimestamp(),
+          userId: user.uid,
+        });
+
+        console.log('投稿が作成されました。ID:', docRef.id);
+      } catch (firestoreErr: any) {
+        console.error('Firestore書き込みエラー:', firestoreErr);
+        
+        // Firestoreエラーコードに基づいたユーザーフレンドリーなメッセージ
+        if (firestoreErr.code === 'permission-denied') {
+          setError('投稿する権限がありません。ログインし直してください。');
+        } else if (firestoreErr.code === 'unavailable') {
+          setError('サーバーに接続できません。インターネット接続を確認してください。');
+        } else {
+          setError(`投稿の作成に失敗しました: ${firestoreErr.message || '不明なエラー'}`);
+        }
+        
+        throw firestoreErr;
+      }
     } catch (err) {
       console.error('投稿作成エラー:', err);
       const errorMessage = err instanceof Error ? err.message : '投稿の作成に失敗しました';
@@ -77,10 +102,42 @@ export function usePosts() {
     }
   };
 
+  // ネットワーク状態の監視
+  useEffect(() => {
+    const handleOnline = () => {
+      console.log('ネットワーク接続が復旧しました');
+      setError(null);
+      // 再接続時に自動的にリロード
+      window.location.reload();
+    };
+    
+    const handleOffline = () => {
+      console.error('ネットワーク接続が切断されました');
+      setError('インターネット接続がありません。ネットワーク接続を確認してください。');
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
   // リアルタイムで投稿一覧を取得
   useEffect(() => {
     console.log('投稿リスナー開始');
     setIsLoading(true);
+    setError(null);
+    
+    // 初期ネットワーク接続チェック
+    if (!navigator.onLine) {
+      console.error('ネットワーク接続がありません');
+      setError('インターネット接続がありません。ネットワーク接続を確認してください。');
+      setIsLoading(false);
+      return; // リスナーを設定せずに終了
+    }
     
     // 投稿を作成日時の降順（新しい順）で取得するクエリ
     const postsQuery = query(
@@ -95,25 +152,47 @@ export function usePosts() {
         console.log('投稿データ更新:', querySnapshot.size, '件');
         const postsData: Post[] = [];
         
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          postsData.push({
-            id: doc.id,
-            text: data.text,
-            nickname: data.nickname,
-            categoryId: data.categoryId,
-            createdAt: data.createdAt,
-            userId: data.userId,
+        try {
+          querySnapshot.forEach((doc) => {
+            const data = doc.data();
+            // データの検証
+            if (!data.text || !data.nickname || !data.categoryId) {
+              console.warn('不完全なデータをスキップ:', doc.id);
+              return;
+            }
+            
+            postsData.push({
+              id: doc.id,
+              text: data.text,
+              nickname: data.nickname,
+              categoryId: data.categoryId,
+              createdAt: data.createdAt,
+              userId: data.userId || 'unknown',
+            });
           });
-        });
-        
-        setPosts(postsData);
-        setIsLoading(false);
-        console.log('投稿一覧更新完了:', postsData.length, '件');
+          
+          setPosts(postsData);
+          setError(null);
+          console.log('投稿一覧更新完了:', postsData.length, '件');
+        } catch (parseErr) {
+          console.error('投稿データの解析エラー:', parseErr);
+          setError('投稿データの解析中にエラーが発生しました');
+        } finally {
+          setIsLoading(false);
+        }
       },
       (err) => {
         console.error('投稿取得エラー:', err);
-        setError(`投稿の取得に失敗しました: ${err.message}`);
+        
+        // エラーコードに基づいたユーザーフレンドリーなメッセージ
+        if (err.code === 'permission-denied') {
+          setError('投稿を閲覧する権限がありません。ログインし直してください。');
+        } else if (err.code === 'unavailable') {
+          setError('サーバーに接続できません。インターネット接続を確認してください。');
+        } else {
+          setError(`投稿の取得に失敗しました: ${err.message || '不明なエラー'}`);
+        }
+        
         setIsLoading(false);
       }
     );
