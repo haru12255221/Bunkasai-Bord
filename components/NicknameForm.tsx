@@ -2,57 +2,75 @@
 
 import { useState, useEffect } from 'react';
 import { useAuthContext } from '../hooks/AuthContext';
+import { checkNicknameAvailability, setNicknameWithValue } from '../hooks/useAuth';
 
 interface NicknameFormProps {
   onComplete?: () => void;
 }
 
 export default function NicknameForm({ onComplete }: NicknameFormProps) {
-  const { user, setNickname, error } = useAuthContext() 
-;
+  const { user, setNickname, error } = useAuthContext();
   const [nickname, setNicknameInput] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [localError, setLocalError] = useState('');
   const [adjustmentMessage, setAdjustmentMessage] = useState('');
   const [isCompleted, setIsCompleted] = useState(false);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [adjustedNickname, setAdjustedNickname] = useState<string | null>(null);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
     if (!nickname.trim()) {
       setLocalError('ニックネームを入力してください');
       return;
     }
-
     if (nickname.length > 20) {
       setLocalError('ニックネームは20文字以内で入力してください');
       return;
     }
-
     try {
       setIsSubmitting(true);
       setLocalError('');
       setAdjustmentMessage('');
-      
       const originalNickname = nickname.trim();
-      await setNickname(originalNickname);
-      
-      console.log('ニックネーム設定完了、ユーザー状態確認:', user);
-      
-      // 成功フラグを設定
-      setIsCompleted(true);
-      
-      // 成功時のコールバック
-      if (onComplete) {
-        onComplete();
+      const checked = await checkNicknameAvailability(originalNickname);
+      if (checked !== originalNickname) {
+        setAdjustedNickname(checked);
+        setShowConfirmModal(true);
+        setIsSubmitting(false);
+        return;
       }
-      
+      // 重複なしならそのまま登録
+      await setNickname(originalNickname);
+      setIsCompleted(true);
+      if (onComplete) onComplete();
     } catch (err) {
-      console.error('ニックネーム設定エラー:', err);
       setLocalError('ニックネームの設定に失敗しました');
     } finally {
       setIsSubmitting(false);
     }
+  };
+
+  // モーダルでOKを押したときの処理
+  const handleConfirm = async () => {
+    if (!user?.uid || !adjustedNickname) return;
+    try {
+      setIsSubmitting(true);
+      await setNicknameWithValue(user.uid, adjustedNickname);
+      setIsCompleted(true);
+      setShowConfirmModal(false);
+      if (onComplete) onComplete();
+    } catch (err) {
+      setLocalError('ニックネームの設定に失敗しました');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // モーダルでキャンセルを押したときの処理
+  const handleCancel = () => {
+    setShowConfirmModal(false);
+    setAdjustedNickname(null);
   };
 
   // 認証されていない場合、またはニックネーム設定済み、または設定完了の場合は何も表示しない
@@ -116,6 +134,29 @@ export default function NicknameForm({ onComplete }: NicknameFormProps) {
           ※ ニックネームは後から変更できません
         </p>
       </div>
+      {/* 重複時の確認モーダル */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-60 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg shadow-lg max-w-sm w-full mx-4 text-center">
+            <h3 className="text-lg font-semibold mb-4">ニックネーム重複の確認</h3>
+            <p className="mb-4">入力したニックネームは既に使われています。<br />
+              <span className="font-bold">{adjustedNickname}</span> で登録してもよろしいですか？
+            </p>
+            <div className="flex justify-center gap-4 mt-6">
+              <button
+                onClick={handleConfirm}
+                className="bg-indigo-600 text-white px-4 py-2 rounded hover:bg-indigo-700 focus:outline-none"
+                disabled={isSubmitting}
+              >OK</button>
+              <button
+                onClick={handleCancel}
+                className="bg-gray-300 text-gray-800 px-4 py-2 rounded hover:bg-gray-400 focus:outline-none"
+                disabled={isSubmitting}
+              >キャンセル</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

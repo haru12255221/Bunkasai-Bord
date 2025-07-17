@@ -23,6 +23,41 @@ export interface UseAuthReturn {
   error: string | null;
 }
 
+// ニックネーム重複チェック関数
+export const checkNicknameAvailability = async (nickname: string): Promise<string> => {
+  try {
+    const q = query(collection(db, 'users'), where('nickname', '==', nickname));
+    const querySnapshot = await getDocs(q);
+    if (querySnapshot.empty) {
+      return nickname; // 重複なし
+    }
+    let counter = 2;
+    let adjustedNickname = `${nickname}${counter}`;
+    while (true) {
+      const adjustedQuery = query(collection(db, 'users'), where('nickname', '==', adjustedNickname));
+      const adjustedSnapshot = await getDocs(adjustedQuery);
+      if (adjustedSnapshot.empty) {
+        return adjustedNickname; // 利用可能なニックネーム
+      }
+      counter++;
+      adjustedNickname = `${nickname}${counter}`;
+      if (counter > 100) {
+        throw new Error('ニックネームの調整に失敗しました');
+      }
+    }
+  } catch (err) {
+    throw err;
+  }
+};
+
+// ニックネームを登録する関数（重複チェック済みの値を使う）
+export const setNicknameWithValue = async (uid: string, nickname: string) => {
+  await setDoc(doc(db, 'users', uid), {
+    nickname,
+    createdAt: serverTimestamp(),
+  });
+};
+
 export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -87,45 +122,6 @@ export function useAuth(): UseAuthReturn {
     }
   };
 
-  // ニックネーム重複チェック関数
-  const checkNicknameAvailability = async (nickname: string): Promise<string> => {
-    try {
-      console.log('Firestore クエリ実行:', nickname);
-      const q = query(collection(db, 'users'), where('nickname', '==', nickname));
-      const querySnapshot = await getDocs(q);
-      console.log('クエリ結果:', { empty: querySnapshot.empty, size: querySnapshot.size });
-      
-      if (querySnapshot.empty) {
-        return nickname; // 重複なし
-      }
-      
-      // 重複がある場合、数字を付加して調整
-      let counter = 2;
-      let adjustedNickname = `${nickname}${counter}`;
-      
-      while (true) {
-        console.log('調整されたニックネームをチェック:', adjustedNickname);
-        const adjustedQuery = query(collection(db, 'users'), where('nickname', '==', adjustedNickname));
-        const adjustedSnapshot = await getDocs(adjustedQuery);
-        
-        if (adjustedSnapshot.empty) {
-          return adjustedNickname; // 利用可能なニックネーム
-        }
-        
-        counter++;
-        adjustedNickname = `${nickname}${counter}`;
-        
-        // 無限ループ防止（最大100回まで）
-        if (counter > 100) {
-          throw new Error('ニックネームの調整に失敗しました');
-        }
-      }
-    } catch (err) {
-      console.error('重複チェック中にエラー:', err);
-      throw err;
-    }
-  };
-
   // ニックネームを設定する関数
   const handleSetNickname = async (nickname: string): Promise<void> => {
     console.log('ニックネーム設定開始:', { nickname, user: user?.uid });
@@ -145,10 +141,7 @@ export function useAuth(): UseAuthReturn {
       
       // Firestoreのusersコレクションにニックネームを保存
       console.log('Firestore書き込み開始...');
-      await setDoc(doc(db, 'users', user.uid), {
-        nickname: finalNickname,
-        createdAt: serverTimestamp(),
-      });
+      await setNicknameWithValue(user.uid, finalNickname);
       console.log('Firestore書き込み完了');
 
       // ローカル状態を即座に更新
