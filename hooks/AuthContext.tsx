@@ -1,21 +1,36 @@
-// AuthContext.tsx
 "use client";
 
-import React, { createContext, useContext } from "react";
-import { useAuth } from "./useAuth";
-import type { UseAuthReturn } from "./useAuth";
+import React, { createContext, useContext } from 'react';
+import { useAuth, User } from './useAuth';
 
-const AuthContext = createContext<UseAuthReturn | null>(null);
+// AuthContextの型定義
+interface AuthContextType {
+  user: User | null;
+  loading: boolean;
+  signInAnonymously: () => Promise<void>;
+  setNickname: (nickname: string) => Promise<void>;
+  error: string | null;
+}
 
-export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
-    const auth = useAuth();
-    return <AuthContext.Provider value={auth}>{children}</AuthContext.Provider>;
-};
+// AuthContextを作成
+const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const useAuthContext = () => {
-    const ctx = useContext(AuthContext);
-    if (!ctx) throw new Error("useAuthContext must be used within AuthProvider");
-    return ctx;
-};
+// AuthProviderコンポーネント
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+  const auth = useAuth();
+  
+  return (
+    <AuthContext.Provider value={auth}>
+      {children}
+    </AuthContext.Provider>
+  );
+}
 
-export { AuthContext };
+// useAuthContextフック
+export function useAuthContext() {
+  const context = useContext(AuthContext);
+  if (context === undefined) {
+    throw new Error('useAuthContext must be used within an AuthProvider');
+  }
+  return context;
+}
