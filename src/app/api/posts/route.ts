@@ -1,0 +1,110 @@
+/// <reference types="@cloudflare/workers-types" />
+import { NextRequest, NextResponse } from 'next/server';
+
+export const runtime = 'edge';
+
+export interface Post {
+  id?: number;
+  nickname: string;
+  body: string;
+  category: string;
+  is_official: number; // 0 or 1
+  created_at?: string;
+}
+
+// This is the binding to our D1 database
+// It's defined in wrangler.toml
+declare global {
+  interface CloudflareEnv {
+    DB: D1Database;
+  }
+}
+
+// GET handler to fetch all posts
+export async function GET(_request: NextRequest) { // eslint-disable-line @typescript-eslint/no-unused-vars
+  try {
+    const db = (process.env as unknown as CloudflareEnv).DB;
+    const { results } = await db.prepare("SELECT * FROM posts ORDER BY created_at DESC").all<Post[]>();
+    return NextResponse.json(results);
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : '不明なエラーが発生しました。';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}
+
+interface NewPostRequest {
+  nickname: string;
+  body: string;
+  category: string;
+  adminPassword?: string; // Optional admin password
+}
+
+// POST handler to create a new post
+export async function POST(_request: NextRequest) {
+  const ADMIN_PASSWORD = "admin1234"; // TODO: Use environment variable in production
+
+  try {
+    const db = (process.env as unknown as CloudflareEnv).DB;
+    const newPostRequest: NewPostRequest = await _request.json();
+
+    // Basic validation
+    if (!newPostRequest.nickname || !newPostRequest.body || !newPostRequest.category) {
+      return NextResponse.json({ error: 'Missing required fields' }, { status: 400 });
+    }
+
+    // Get client IP for rate limiting
+    const clientIp = _request.headers.get('cf-connecting-ip');
+    if (!clientIp) {
+      return NextResponse.json({ error: 'Unable to determine client IP' }, { status: 500 });
+    }
+
+    // --- Rate Limiting Check ---
+    const rateLimitRecord = await db.prepare(
+      "SELECT last_post_at FROM rate_limits WHERE ip_address = ?"
+    ).bind(clientIp).first<{ last_post_at: string }>();
+
+    const now = new Date();
+    if (rateLimitRecord && rateLimitRecord.last_post_at) {
+      const lastPostTime = new Date(rateLimitRecord.last_post_at);
+      const timeDiffSeconds = (now.getTime() - lastPostTime.getTime()) / 1000;
+      const ONE_HOUR_IN_SECONDS = 3600;
+
+      if (timeDiffSeconds < ONE_HOUR_IN_SECONDS) {
+        return NextResponse.json(
+          { error: `投稿は1時間に1回までです。あと${Math.ceil((ONE_HOUR_IN_SECONDS - timeDiffSeconds) / 60)}分お待ちください。` },
+          { status: 429 }
+        );
+      }
+    }
+
+    // --- Admin Password Check ---
+    const is_official = (newPostRequest.adminPassword === ADMIN_PASSWORD) ? 1 : 0;
+
+    // --- Insert Post ---
+    const { success } = await db.prepare(
+      "INSERT INTO posts (nickname, body, category, is_official, created_at) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(
+        newPostRequest.nickname,
+        newPostRequest.body,
+        newPostRequest.category,
+        is_official,
+        now.toISOString() // Explicitly pass created_at
+    )
+    .run();
+
+    if (success) {
+      // --- Update Rate Limit ---
+      await db.prepare(
+        "INSERT OR REPLACE INTO rate_limits (ip_address, last_post_at) VALUES (?, ?)"
+      ).bind(clientIp, now.toISOString()).run();
+
+      return NextResponse.json({ message: 'Post created successfully' }, { status: 201 });
+    } else {
+      return NextResponse.json({ error: 'Failed to create post' }, { status: 500 });
+    }
+  } catch (e: unknown) {
+    const message = e instanceof Error ? e.message : '不明なエラーが発生しました。';
+    return NextResponse.json({ error: message }, { status: 500 });
+  }
+}

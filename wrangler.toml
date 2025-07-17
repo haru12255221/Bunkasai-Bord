@@ -1,0 +1,9 @@
+name = "bunkasai-board"
+compatibility_date = "2024-07-29"
+compatibility_flags = ["nodejs_compat"]
+pages_build_output_dir = ".vercel/output/static"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "bunkasai-board-db"
+database_id = "df6a2f88-be40-4594-939a-3a1f4c616428"
