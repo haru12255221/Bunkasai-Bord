@@ -20,6 +20,7 @@ export interface UseAuthReturn {
   loading: boolean;
   signInAnonymously: () => Promise<void>;
   setNickname: (nickname: string) => Promise<void>;
+  setNicknameDirectly: (nickname: string) => Promise<void>;
   error: string | null;
 }
 
@@ -50,7 +51,7 @@ export const checkNicknameAvailability = async (nickname: string): Promise<strin
   }
 };
 
-// ニックネームを登録する関数（重複チェック済みの値を使う）
+// ニックネームを登録する関数
 export const setNicknameWithValue = async (uid: string, nickname: string) => {
   await setDoc(doc(db, 'users', uid), {
     nickname,
@@ -62,8 +63,6 @@ export function useAuth(): UseAuthReturn {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [nickname, setNickname] = useState('');
-  const [duplicateCandidate, setDuplicateCandidate] = useState<string | null>(null);
 
   // Firebase認証状態の監視と自動匿名認証
   useEffect(() => {
@@ -122,7 +121,7 @@ export function useAuth(): UseAuthReturn {
     }
   };
 
-  // ニックネームを設定する関数
+  // ニックネームを設定する関数（重複チェック付き）
   const handleSetNickname = async (nickname: string): Promise<void> => {
     console.log('ニックネーム設定開始:', { nickname, user: user?.uid });
     
@@ -167,11 +166,47 @@ export function useAuth(): UseAuthReturn {
     }
   };
 
+  // ニックネームを直接設定する関数（重複チェックなし）
+  const handleSetNicknameDirectly = async (nickname: string): Promise<void> => {
+    console.log('ニックネーム直接設定開始:', { nickname, user: user?.uid });
+    
+    if (!user?.uid) {
+      console.error('ユーザーが認証されていません:', user);
+      throw new Error('ユーザーが認証されていません');
+    }
+
+    try {
+      setError(null);
+      
+      // Firestoreのusersコレクションにニックネームを保存
+      console.log('Firestore書き込み開始...');
+      await setNicknameWithValue(user.uid, nickname);
+      console.log('Firestore書き込み完了');
+
+      // ローカル状態を即座に更新
+      const updatedUser = { ...user, nickname: nickname };
+      setUser(updatedUser);
+      console.log('ローカル状態更新完了:', updatedUser);
+      
+      // 状態更新を確実にするため、少し待ってから再度確認
+      await new Promise(resolve => setTimeout(resolve, 200));
+      
+      // 強制的に状態を再設定して確実に更新
+      setUser({ ...updatedUser });
+      console.log('最終的なユーザー状態:', updatedUser);
+    } catch (err) {
+      console.error('ニックネームの設定に失敗しました:', err);
+      setError(`ニックネームの設定に失敗しました: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      throw err;
+    }
+  };
+
   return {
     user,
     loading,
     signInAnonymously: handleSignInAnonymously,
     setNickname: handleSetNickname,
+    setNicknameDirectly: handleSetNicknameDirectly,
     error,
   };
 }

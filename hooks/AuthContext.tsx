@@ -9,6 +9,7 @@ interface AuthContextType {
   loading: boolean;
   signInAnonymously: () => Promise<void>;
   setNickname: (nickname: string) => Promise<void>;
+  setNicknameDirectly: (nickname: string) => Promise<void>;
   error: string | null;
 }
 
