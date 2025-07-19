@@ -1,75 +1,35 @@
 "use client";
 
-import { useState, useEffect } from 'react';
-import { collection, query, orderBy, onSnapshot, Timestamp } from 'firebase/firestore';
-import { db } from '../lib/firebase';
-
-// 投稿データの型定義
-interface Post {
-  id: string;
-  text: string;
-  nickname: string;
-  categoryId: string;
-  createdAt: Timestamp;
-  userId: string;
-}
+import { usePosts } from '../hooks/usePosts';
+import PostContent, { HashtagBadges, FilterStatus } from './PostContent';
+import { getPopularHashtags } from '../lib/hashtagStats';
+import { useMemo } from 'react';
 
 export default function PostList() {
-  const [posts, setPosts] = useState<Post[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    console.log('PostList: リアルタイムリスナーを設定中...');
-    
-    // Firestoreのpostsコレクションをリアルタイムで監視
-    const q = query(
-      collection(db, 'posts'),
-      orderBy('createdAt', 'desc') // 新しい順でソート
-    );
-
-    const unsubscribe = onSnapshot(
-      q,
-      (querySnapshot) => {
-        console.log('PostList: データ更新を受信:', querySnapshot.size, '件');
-        
-        const postsData: Post[] = [];
-        querySnapshot.forEach((doc) => {
-          const data = doc.data();
-          postsData.push({
-            id: doc.id,
-            text: data.text,
-            nickname: data.nickname,
-            categoryId: data.categoryId,
-            createdAt: data.createdAt,
-            userId: data.userId,
-          });
-        });
-        
-        setPosts(postsData);
-        setLoading(false);
-        setError(null);
-      },
-      (err) => {
-        console.error('PostList: リアルタイムリスナーエラー:', err);
-        setError('投稿の取得に失敗しました');
-        setLoading(false);
-      }
-    );
-
-    // クリーンアップ関数
-    return () => {
-      console.log('PostList: リアルタイムリスナーを解除');
-      unsubscribe();
-    };
-  }, []);
+  const { 
+    posts: allPosts, 
+    filteredPosts: posts, 
+    isLoading: loading, 
+    error, 
+    filterByHashtag, 
+    clearFilter,
+    currentFilter 
+  } = usePosts();
 
   // 日時をフォーマットする関数
-  const formatDate = (timestamp: Timestamp | null) => {
+  const formatDate = (timestamp: unknown) => {
     if (!timestamp) return '日時不明';
     
     try {
-      const date = timestamp.toDate();
+      let date: Date;
+      if (typeof timestamp === 'object' && timestamp !== null && 'toDate' in timestamp) {
+        // Firestore Timestamp
+        date = (timestamp as { toDate: () => Date }).toDate();
+      } else {
+        // その他の形式
+        date = new Date(timestamp as string | number | Date);
+      }
+      
       return date.toLocaleString('ja-JP', {
         year: 'numeric',
         month: '2-digit',
@@ -83,16 +43,19 @@ export default function PostList() {
     }
   };
 
-  // カテゴリのスタイルを取得する関数
-  const getCategoryStyle = (categoryId: string) => {
-    const styles = {
-      '感想': 'bg-blue-100 text-blue-800',
-      '質問': 'bg-green-100 text-green-800',
-      '応援': 'bg-yellow-100 text-yellow-800',
-      'お知らせ': 'bg-red-100 text-red-800',
-    };
-    return styles[categoryId as keyof typeof styles] || 'bg-gray-100 text-gray-800';
-  };
+  // ハッシュタグクリック処理（メモ化）
+  const handleHashtagClick = useMemo(() => (hashtag: string) => {
+    if (currentFilter === hashtag) {
+      clearFilter(); // 同じハッシュタグをクリックした場合はフィルターを解除
+    } else {
+      filterByHashtag(hashtag);
+    }
+  }, [currentFilter, clearFilter, filterByHashtag]);
+
+  // 人気ハッシュタグの計算（メモ化）
+  const popularHashtags = useMemo(() => {
+    return getPopularHashtags(allPosts, 5);
+  }, [allPosts]);
 
   if (loading) {
     return (
@@ -131,8 +94,43 @@ export default function PostList() {
   }
 
   return (
-    <div className="bg-white p-6 rounded-lg shadow-md">
-      <h2 className="text-xl font-semibold mb-4">投稿一覧</h2>
+    <div className="space-y-6">
+      {/* フィルター状態表示 */}
+      <FilterStatus
+        currentFilter={currentFilter}
+        onClearFilter={clearFilter}
+        filteredCount={posts.length}
+        totalCount={allPosts.length}
+      />
+
+      {/* 人気ハッシュタグ表示 */}
+      {!currentFilter && popularHashtags.length > 0 && (
+        <div className="bg-white p-4 rounded-lg shadow-md">
+          <h3 className="text-lg font-medium mb-3 text-gray-800">人気のハッシュタグ</h3>
+          <div className="flex flex-wrap gap-2">
+            {popularHashtags.map(({ hashtag, count }) => (
+              <button
+                key={hashtag}
+                onClick={() => handleHashtagClick(hashtag)}
+                className="inline-flex items-center px-3 py-1 rounded-full text-sm font-medium bg-blue-100 text-blue-800 hover:bg-blue-200 transition-colors"
+              >
+                #{hashtag}
+                <span className="ml-1 text-xs bg-blue-200 text-blue-700 px-1.5 py-0.5 rounded-full">
+                  {count}
+                </span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="bg-white p-6 rounded-lg shadow-md">
+        <div className="flex justify-between items-center mb-4">
+          <h2 className="text-xl font-semibold">投稿一覧</h2>
+          <div className="text-sm text-gray-500">
+            {posts.length} / {allPosts.length} 件
+          </div>
+        </div>
       
       {posts.length === 0 ? (
         <div className="text-center py-12">
@@ -151,28 +149,47 @@ export default function PostList() {
         </div>
       ) : (
         <div className="space-y-4">
+          {/* 投稿をループで表示 */}
           {posts.map((post) => (
-            <div key={post.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
-              <div className="flex justify-between items-start mb-2">
+            <article key={post.id} className="border border-gray-200 rounded-lg p-4 hover:bg-gray-50 transition-colors">
+              <header className="flex justify-between items-start mb-3">
                 <div className="flex items-center space-x-3">
                   <span className="font-semibold text-gray-800">
                     {post.nickname}
                   </span>
-                  <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${getCategoryStyle(post.categoryId)}`}>
-                    {post.categoryId}
-                  </span>
+                  {post.hashtags && post.hashtags.length > 0 && (
+                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-1 rounded-full">
+                      {post.hashtags.length}個のタグ
+                    </span>
+                  )}
                 </div>
-                <span className="text-sm text-gray-500 flex-shrink-0">
+                <time className="text-sm text-gray-500 flex-shrink-0" dateTime={post.createdAt?.toDate?.()?.toISOString()}>
                   {formatDate(post.createdAt)}
-                </span>
-              </div>
-              <p className="text-gray-700 whitespace-pre-wrap leading-relaxed">
-                {post.text}
-              </p>
-            </div>
+                </time>
+              </header>
+              
+              {/* 投稿内容（ハッシュタグハイライト付き） */}
+              <PostContent 
+                text={post.text} 
+                onHashtagClick={handleHashtagClick}
+                className="mb-3"
+              />
+              
+              {/* ハッシュタグバッジ */}
+              {post.hashtags && post.hashtags.length > 0 && (
+                <footer>
+                  <HashtagBadges
+                    hashtags={post.hashtags}
+                    onHashtagClick={handleHashtagClick}
+                    currentFilter={currentFilter}
+                  />
+                </footer>
+              )}
+            </article>
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }

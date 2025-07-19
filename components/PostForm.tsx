@@ -1,8 +1,12 @@
 "use client";
 
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useAuthContext } from '../hooks/AuthContext';
 import { usePosts } from '../hooks/usePosts';
+import { NewPost } from '../types/post';
+import { HashtagPreview } from './HashtagHighlighter';
+import { extractHashtags } from '../lib/hashtagUtils';
+import { useHashtags } from '../hooks/useHashtags';
 
 interface PostFormProps {
   onPostCreated?: () => void;
@@ -11,19 +15,66 @@ interface PostFormProps {
 export default function PostForm({ onPostCreated }: PostFormProps) {
   const { user } = useAuthContext();
   const { createPost, isSubmitting, error } = usePosts();
+  const { validateHashtag } = useHashtags();
 
   const [text, setText] = useState('');
-  const [categoryId, setCategoryId] = useState('感想');
+  const [selectedHashtags, setSelectedHashtags] = useState<string[]>([]);
+  const [customHashtag, setCustomHashtag] = useState('');
   const [localError, setLocalError] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
 
-  // カテゴリオプション
-  const categories = [
+  // リアルタイムでハッシュタグを抽出
+  const extractedHashtags = useMemo(() => {
+    return extractHashtags(text);
+  }, [text]);
+
+  // 全てのハッシュタグ（抽出 + 選択 + カスタム）
+  const allHashtags = useMemo(() => {
+    const combined = [...extractedHashtags, ...selectedHashtags];
+    if (customHashtag.trim()) {
+      combined.push(customHashtag.trim());
+    }
+    // 重複除去
+    return Array.from(new Set(combined));
+  }, [extractedHashtags, selectedHashtags, customHashtag]);
+
+  // デフォルトハッシュタグオプション（旧カテゴリー）
+  const defaultHashtags = [
     { id: '感想', label: '感想' },
     { id: '質問', label: '質問' },
     { id: '応援', label: '応援' },
     { id: 'お知らせ', label: 'お知らせ' },
   ];
+
+  // ハッシュタグの追加/削除
+  const toggleHashtag = (hashtag: string) => {
+    setSelectedHashtags(prev =>
+      prev.includes(hashtag)
+        ? prev.filter(tag => tag !== hashtag)
+        : [...prev, hashtag]
+    );
+  };
+
+  // カスタムハッシュタグの追加
+  const addCustomHashtag = () => {
+    const validation = validateHashtag(customHashtag, selectedHashtags, extractedHashtags);
+
+    if (!validation.isValid) {
+      if (validation.error) {
+        setLocalError(validation.error);
+        setTimeout(() => setLocalError(''), 3000);
+      }
+      return;
+    }
+
+    setSelectedHashtags(prev => [...prev, customHashtag.trim()]);
+    setCustomHashtag('');
+  };
+
+  // ハッシュタグの削除
+  const removeHashtag = (hashtag: string) => {
+    setSelectedHashtags(prev => prev.filter(tag => tag !== hashtag));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -43,13 +94,17 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
         return;
       }
 
-      await createPost({
+      const postData: NewPost = {
         text,
-        categoryId,
-      });
+        hashtags: selectedHashtags.length > 0 ? selectedHashtags : undefined,
+      };
+
+      await createPost(postData);
 
       // 投稿成功時の処理
       setText('');
+      setSelectedHashtags([]);
+      setCustomHashtag('');
       setSuccessMessage('投稿が作成されました！');
 
       // 成功メッセージを3秒後に消す
@@ -149,22 +204,102 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label htmlFor="category" className="block text-sm font-medium text-gray-700 mb-2">
-            カテゴリ
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            ハッシュタグ
           </label>
-          <select
-            id="category"
-            value={categoryId}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setCategoryId(e.target.value)}
-            className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
-            disabled={isSubmitting}
-          >
-            {categories.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.label}
-              </option>
-            ))}
-          </select>
+
+          {/* デフォルトハッシュタグ選択 */}
+          <div className="mb-3">
+            <div className="text-xs text-gray-600 mb-2">よく使われるハッシュタグ:</div>
+            <div className="flex flex-wrap gap-2">
+              {defaultHashtags.map((hashtag) => (
+                <button
+                  key={hashtag.id}
+                  type="button"
+                  onClick={() => toggleHashtag(hashtag.id)}
+                  className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${selectedHashtags.includes(hashtag.id)
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                    }`}
+                  disabled={isSubmitting}
+                >
+                  #{hashtag.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* カスタムハッシュタグ入力 */}
+          <div className="mb-3">
+            <div className="text-xs text-gray-600 mb-2">カスタムハッシュタグを追加:</div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={customHashtag}
+                onChange={(e) => setCustomHashtag(e.target.value)}
+                placeholder="ハッシュタグを入力（#なしで）"
+                className="flex-1 px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-sm"
+                disabled={isSubmitting}
+                maxLength={50}
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    addCustomHashtag();
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={addCustomHashtag}
+                disabled={!customHashtag.trim() || isSubmitting || allHashtags.length >= 10}
+                className="px-3 py-2 bg-gray-600 text-white rounded-md hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed text-sm"
+              >
+                追加
+              </button>
+            </div>
+            {customHashtag.trim() && (
+              <div className="text-xs text-gray-500 mt-1">
+                {selectedHashtags.includes(customHashtag.trim()) && (
+                  <span className="text-orange-600">⚠ 既に選択済み</span>
+                )}
+                {extractedHashtags.includes(customHashtag.trim()) && (
+                  <span className="text-blue-600">ℹ テキストから自動抽出されます</span>
+                )}
+                {allHashtags.length >= 11 && (
+                  <span className="text-red-600">⚠ ハッシュタグ上限に達しています</span>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* 選択されたハッシュタグ表示 */}
+          {selectedHashtags.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs text-gray-600 mb-2">選択中のハッシュタグ:</div>
+              <div className="flex flex-wrap gap-2">
+                {selectedHashtags.map((hashtag) => (
+                  <span
+                    key={hashtag}
+                    className="inline-flex items-center px-2 py-1 bg-indigo-100 text-indigo-800 rounded-full text-sm"
+                  >
+                    #{hashtag}
+                    <button
+                      type="button"
+                      onClick={() => removeHashtag(hashtag)}
+                      className="ml-1 text-indigo-600 hover:text-indigo-800"
+                      disabled={isSubmitting}
+                    >
+                      ×
+                    </button>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <p className="text-xs text-gray-500">
+            テキスト内の#で始まる単語も自動的にハッシュタグとして認識されます
+          </p>
         </div>
 
         <div>
@@ -177,10 +312,14 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
             value={text}
             onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setText(e.target.value)}
             className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 text-gray-900"
-            placeholder="感想や応援メッセージをどうぞ！"
+            placeholder="感想や応援メッセージをどうぞ！ #ハッシュタグも使えます"
             maxLength={500}
             disabled={isSubmitting}
           />
+
+          {/* リアルタイムハッシュタグプレビュー */}
+          <HashtagPreview text={text} />
+
           <div className="flex justify-between items-center mt-1">
             <p className="text-xs text-gray-500">
               {text.length}/500文字
@@ -191,6 +330,30 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
               </p>
             )}
           </div>
+
+          {/* 全ハッシュタグのサマリー */}
+          {allHashtags.length > 0 && (
+            <div className="mt-2 p-2 bg-gray-50 rounded-md">
+              <div className="text-xs text-gray-600 mb-1">
+                この投稿に含まれるハッシュタグ ({allHashtags.length}/10):
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {allHashtags.map((hashtag, index) => (
+                  <span
+                    key={index}
+                    className="inline-block px-2 py-1 bg-blue-50 text-blue-700 rounded-full text-xs font-medium"
+                  >
+                    #{hashtag}
+                  </span>
+                ))}
+              </div>
+              {allHashtags.length > 10 && (
+                <p className="text-xs text-red-500 mt-1">
+                  ハッシュタグは最大10個までです
+                </p>
+              )}
+            </div>
+          )}
         </div>
 
         <button
