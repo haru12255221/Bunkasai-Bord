@@ -2,9 +2,39 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // 一時的に全アクセス許可（開発用）
-    match /{document=**} {
-      allow read, write: if true;
+    
+    // 投稿コレクションのセキュリティルール
+    match /posts/{postId} {
+      // 読み取り: 認証済みユーザーのみ
+      allow read: if request.auth != null;
+      
+      // 作成: 認証済みユーザーかつ基本バリデーション
+      allow create: if request.auth != null 
+        && validatePost(request.resource.data)
+        && request.resource.data.userId == request.auth.uid;
+      
+      // 更新・削除: 禁止（投稿の編集・削除は不可）
+      allow update, delete: if false;
     }
+    
+    // その他のコレクションは拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+  
+  // 投稿データのバリデーション関数
+  function validatePost(data) {
+    return data.keys().hasAll(['text', 'nickname', 'userId', 'hashtags'])
+      && data.text is string
+      && data.text.size() > 0
+      && data.text.size() <= 500
+      && data.nickname is string
+      && data.nickname.size() > 0
+      && data.nickname.size() <= 50
+      && data.userId is string
+      && data.userId == request.auth.uid
+      && data.hashtags is list
+      && data.hashtags.size() <= 10;
   }
 }
