@@ -8,32 +8,38 @@ service cloud.firestore {
       // 読み取り: 認証済みユーザーのみ
       allow read: if request.auth != null;
       
-      // 作成: 認証済みユーザーかつ基本バリデーション
+      // 作成: 認証済みユーザー + データ検証
       allow create: if request.auth != null 
-        && validatePost(request.resource.data)
-        && request.resource.data.userId == request.auth.uid;
+        && request.resource.data.userId == request.auth.uid
+        && validatePost(request.resource.data);
       
-      // 更新・削除: 禁止（投稿の編集・削除は不可）
+      // 更新・削除: 禁止
       allow update, delete: if false;
     }
     
-    // その他のコレクションは拒否
-    match /{document=**} {
-      allow read, write: if false;
+    // ユーザーコレクションのセキュリティルール
+    match /users/{userId} {
+      // 読み取り: 認証済みユーザーのみ（ニックネーム重複チェック用）
+      allow read: if request.auth != null;
+      
+      // 作成・更新: 自分のデータのみ
+      allow create, update: if request.auth != null 
+        && request.auth.uid == userId;
+      
+      // 削除: 禁止
+      allow delete: if false;
     }
   }
   
   // 投稿データのバリデーション関数
   function validatePost(data) {
-    return data.keys().hasAll(['text', 'nickname', 'userId', 'hashtags'])
-      && data.text is string
+    return data.text is string
       && data.text.size() > 0
       && data.text.size() <= 500
       && data.nickname is string
       && data.nickname.size() > 0
       && data.nickname.size() <= 50
       && data.userId is string
-      && data.userId == request.auth.uid
       && data.hashtags is list
       && data.hashtags.size() <= 10;
   }
