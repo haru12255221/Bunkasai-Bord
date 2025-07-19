@@ -15,7 +15,7 @@ interface PostFormProps {
 export default function PostForm({ onPostCreated }: PostFormProps) {
   const { user } = useAuthContext();
   const { createPost, isSubmitting, error } = usePosts();
-  const { validateHashtag } = useHashtags();
+  const { validateHashtag } = useHashtags([]); // 空配列を渡す
 
   const [text, setText] = useState('');
   const [selectedHashtags, setSelectedHashtags] = useState<string[]>([]);
@@ -58,7 +58,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
   // カスタムハッシュタグの追加
   const addCustomHashtag = () => {
     const validation = validateHashtag(customHashtag, selectedHashtags, extractedHashtags);
-
+    
     if (!validation.isValid) {
       if (validation.error) {
         setLocalError(validation.error);
@@ -66,7 +66,7 @@ export default function PostForm({ onPostCreated }: PostFormProps) {
       }
       return;
     }
-
+    
     setSelectedHashtags(prev => [...prev, customHashtag.trim()]);
     setCustomHashtag('');
   };

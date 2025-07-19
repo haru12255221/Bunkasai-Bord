@@ -3,6 +3,7 @@
 import { usePosts } from '../hooks/usePosts';
 import PostContent, { HashtagBadges, FilterStatus } from './PostContent';
 import { getPopularHashtags } from '../lib/hashtagStats';
+import HashtagSearch from './HashtagSearch';
 import { useMemo } from 'react';
 
 export default function PostList() {
@@ -61,7 +62,7 @@ export default function PostList() {
     return (
       <div className="bg-white p-6 rounded-lg shadow-md">
         <h2 className="text-xl font-semibold mb-4">投稿一覧</h2>
-        <div className="flex flex-col items-center justify-center py-12">
+        <div className="flex flex-col items-center justify-center py-12 min-h-[400px]">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mb-4"></div>
           <p className="text-gray-600 text-lg font-medium">投稿を読み込み中...</p>
           <p className="text-gray-500 text-sm mt-2">しばらくお待ちください</p>
@@ -102,6 +103,16 @@ export default function PostList() {
         filteredCount={posts.length}
         totalCount={allPosts.length}
       />
+
+      {/* ハッシュタグ検索 */}
+      <div className="bg-white p-4 rounded-lg shadow-md">
+        <h3 className="text-lg font-medium mb-3 text-gray-800">ハッシュタグ検索</h3>
+        <HashtagSearch
+          posts={allPosts}
+          onHashtagSelect={handleHashtagClick}
+          currentFilter={currentFilter}
+        />
+      </div>
 
       {/* 人気ハッシュタグ表示 */}
       {!currentFilter && popularHashtags.length > 0 && (

@@ -14,9 +14,13 @@ export function useHashtags(posts: Post[] = []) {
     if (posts.length === 0) return [];
     
     setIsLoading(true);
-    const result = getPopularHashtags(posts, 10); // 上位10個
-    setIsLoading(false);
     
+    // パフォーマンス最適化：大量データの場合は処理を分割
+    const result = posts.length > 100 
+      ? getPopularHashtags(posts.slice(-100), 10) // 最新100件のみ処理
+      : getPopularHashtags(posts, 10);
+    
+    setIsLoading(false);
     return result;
   }, [posts]);
 
@@ -34,11 +38,11 @@ export function useHashtags(posts: Post[] = []) {
     );
   };
 
-  // ハッシュタグバリデーション機能
-  const validateHashtag = (
+  // ハッシュタグバリデーション機能（高速化版）
+  const validateHashtag = useMemo(() => (
     newHashtag: string, 
-    selectedHashtags: string[], 
-    extractedHashtags: string[]
+    selectedHashtags: string[] = [], 
+    extractedHashtags: string[] = []
   ) => {
     const trimmed = newHashtag.trim();
     
@@ -46,11 +50,15 @@ export function useHashtags(posts: Post[] = []) {
       return { isValid: false, error: null };
     }
     
-    if (selectedHashtags.includes(trimmed)) {
+    // 高速検索のためSetを使用
+    const selectedSet = new Set(selectedHashtags || []);
+    const extractedSet = new Set(extractedHashtags || []);
+    
+    if (selectedSet.has(trimmed)) {
       return { isValid: false, error: 'このハッシュタグは既に選択されています' };
     }
     
-    if (extractedHashtags.includes(trimmed)) {
+    if (extractedSet.has(trimmed)) {
       return { isValid: false, error: 'このハッシュタグは投稿テキストから自動抽出されます' };
     }
     
@@ -61,7 +69,7 @@ export function useHashtags(posts: Post[] = []) {
     }
     
     return { isValid: true, error: null };
-  };
+  }, []);
 
   return {
     // データ

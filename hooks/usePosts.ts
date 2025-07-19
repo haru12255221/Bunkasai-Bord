@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { 
   collection, 
   addDoc, 
@@ -57,11 +57,16 @@ export function usePosts() {
     }
   };
 
-  // フィルターをクリア
-  const clearFilter = () => {
+  // フィルターをクリア（最適化版）
+  const clearFilter = useCallback(() => {
     setCurrentFilter(null);
-    setFilteredPosts(posts);
-  };
+    // 大量データの場合は非同期処理
+    if (posts.length > 50) {
+      setTimeout(() => setFilteredPosts(posts), 0);
+    } else {
+      setFilteredPosts(posts);
+    }
+  }, [posts]);
 
   // 投稿を作成する関数
   const createPost = async (postData: NewPost): Promise<void> => {

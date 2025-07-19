@@ -5,7 +5,7 @@
 
 "use client";
 
-import React from 'react';
+import React, { useMemo } from 'react';
 import HashtagHighlighter from './HashtagHighlighter';
 
 interface PostContentProps {
@@ -19,12 +19,17 @@ export default function PostContent({
   onHashtagClick, 
   className = '' 
 }: PostContentProps) {
+  // ハッシュタグハイライト処理をメモ化
+  const highlightedContent = useMemo(() => (
+    <HashtagHighlighter 
+      text={text} 
+      onHashtagClick={onHashtagClick}
+    />
+  ), [text, onHashtagClick]);
+
   return (
     <div className={`whitespace-pre-wrap leading-relaxed ${className}`}>
-      <HashtagHighlighter 
-        text={text} 
-        onHashtagClick={onHashtagClick}
-      />
+      {highlightedContent}
     </div>
   );
 }
